@@ -21,7 +21,8 @@ from rl_env.state_representation.StateRepresentation import GraphRepresentation
 
 
 class WRSN(gym.Env):
-    def __init__(self, scenario_path, agent_type_path, num_agent, warm_up_time=100):
+    def __init__(self, scenario_path, agent_type_path, num_agent, warm_up_time=100, device=torch.device('cpu')):
+        self.device = device
         self.scenario_io = NetworkIO(scenario_path)
         with open(agent_type_path, "r") as file:
             self.agent_phy_para = yaml.safe_load(file)
@@ -121,34 +122,29 @@ class WRSN(gym.Env):
         num_classes = len(self.net.listChargingLocations) + 1
         hidden_dim = 512
         output_dim = 83  # số lượng lớp đầu ra, ví dụ
-        GNN_model = GCN(num_features, hidden_dim, output_dim, num_classes)
+        GNN_model = GCN(num_features, hidden_dim, output_dim, num_classes).to(self.device)
 
         # Tải lại trạng thái của mô hình từ file
         GNN_model.load_state_dict(torch.load(model_path))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             GNN_model.load_state_dict(torch.load(model_path))
-
-        # Chuyển mô hình sang chế độ đánh giá
-        GNN_model.eval()
-        # Thực hiện suy luận với dữ liệu mới
+        data = data.to(self.device)
         with torch.no_grad():
-            # Giả sử data là dữ liệu mới với cấu trúc tương tự `data.x` và `data.edge_index`
             _, embeddings = GNN_model(data.x, data.edge_index)
-        enegy = self.get_enegy()
+        enegy = self.get_enegy(device=embeddings.device)
         embeddings = torch.cat((embeddings, enegy), 1)
         embeddings_np = embeddings.detach().cpu().numpy()
         embedding_dim = embeddings_np.shape[1]
         embeddings_flat = embeddings_np.flatten()
         return embeddings_flat, embedding_dim
 
-    def get_enegy(self):
+    def get_enegy(self, device):
         arr_energy = []
         for node in self.net.listNodes:
             arr_energy.append(node.energy / self.scenario_io.node_phy_spe["capacity"])
-
         arr_energy.append(1)
-        arr_energy = torch.tensor(arr_energy)
+        arr_energy = torch.tensor(arr_energy, device=device)
         tensor_energy = arr_energy.view(-1, 1)
         return tensor_energy
 

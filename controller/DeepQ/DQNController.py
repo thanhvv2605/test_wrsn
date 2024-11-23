@@ -12,8 +12,9 @@ from controller.DeepQ.DQN_model import DQN
 from controller.DeepQ.ReplayBuffer import ReplayBuffer
 
 class DQNController:
-    def __init__(self, num_agents, state_dim, action_dim, config):
+    def __init__(self, num_agents, state_dim, action_dim, config, device=torch.device('cpu')):
         # Load hyperparameters from config
+        self.device = device
         self.num_agents = num_agents  # Number of agents (mobile chargers)
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -32,8 +33,8 @@ class DQNController:
         self.replay_buffers = [ReplayBuffer(capacity=10000) for _ in range(num_agents)]
 
         # Networks for all agents
-        self.q_networks = [DQN(state_dim, action_dim) for _ in range(num_agents)]
-        self.target_networks = [DQN(state_dim, action_dim) for _ in range(num_agents)]
+        self.q_networks = [DQN(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
+        self.target_networks = [DQN(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
         self.optimizers = [optim.Adam(self.q_networks[i].parameters(), lr=self.lr) for i in range(num_agents)]
 
         # Sync target networks with Q-networks
@@ -53,8 +54,7 @@ class DQNController:
         self.steps_done += 1
 
         if sample > eps_threshold:
-            # Exploitation: choose the best action from the agent's Q-network
-            state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 q_values = self.q_networks[agent_id](state_tensor)
             action = int(torch.argmax(q_values).item())
@@ -81,11 +81,11 @@ class DQNController:
         states, actions, rewards, next_states, dones = batch
 
         # Convert to tensors
-        states = torch.FloatTensor(states)
-        actions = torch.LongTensor(actions).unsqueeze(1)
-        rewards = torch.FloatTensor(rewards).unsqueeze(1)
-        next_states = torch.FloatTensor(next_states)
-        dones = torch.FloatTensor(dones).unsqueeze(1)
+        states = torch.FloatTensor(states).to(self.device)
+        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)
+        rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
+        next_states = torch.FloatTensor(next_states).to(self.device)
+        dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
 
         # Q-values of current states
         q_values = self.q_networks[agent_id](states).gather(1, actions)

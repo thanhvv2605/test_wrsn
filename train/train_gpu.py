@@ -21,13 +21,16 @@ def load_config(config_path):
 # Tải cấu hình
 config = load_config("params/deepq_models.json")
 
-# Khởi tạo môi trường
+
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.backends.cudnn.benchmark = True
 env = WRSN(
     scenario_path="physical_env/network/network_scenarios/hanoi1000n50.yaml",
     agent_type_path="physical_env/mc/mc_types/default.yaml",
-    num_agent=1
+    num_agent=1,
+    device=device
 )
-
 # Lấy trạng thái mẫu để xác định state_dim
 state = env.reset()
 if state["state"] is not None:
@@ -37,39 +40,40 @@ else:
 state_dim = sample_state.size
 action_dim = len(env.net.listChargingLocations) + 1
 
-# Kiểm tra xem GPU có sẵn không
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Khởi tạo controller và chuyển mô hình sang GPU
-controller = DQNController(num_agents=1, state_dim=state_dim, action_dim=action_dim, config=config)
-
+controller = DQNController(
+    num_agents=1,
+    state_dim=state_dim,
+    action_dim=action_dim,
+    config=config,
+    device=device
+)
 num_episodes = 1000
 for episode in range(num_episodes):
+    print(f"Episode {episode}")
     state = env.reset()
     done = False
 
     while not done:
         agent_id = state["agent_id"]
         if agent_id is not None:
-            prev_state = state["prev_state"]
-            action = controller.select_action(agent_id, prev_state[0]) # Chuyển prev_state sang GPU
+            prev_state = torch.tensor(state["prev_state"][0], dtype=torch.float32).to(device)
+            action = controller.select_action(agent_id, prev_state)
             next_state = env.step(action)
             reward = next_state["reward"]
             done = next_state["terminal"]
+
             if next_state["state"] is not None:
-                next_state_flat = next_state["state"][0]  # Chuyển next_state_flat sang GPU
-                controller.store_transition(agent_id, prev_state[0], action, reward, next_state_flat, done)
+                next_state_flat = torch.tensor(next_state["state"][0], dtype=torch.float32).to(device)
+                controller.store_transition(agent_id, prev_state, action, reward, next_state_flat, done)
                 controller.train_agent(agent_id)
                 controller.sync_target_network(agent_id)
-            else:
-                # Agent vẫn đang di chuyển hoặc đang sạc
-                pass
             state = next_state
         else:
             next_state = env.step(None)
             done = next_state["terminal"]
             state = next_state
 
+print("Training completed!")
 # Lưu mô hình cho tất cả các agent
 for agent_id in range(controller.num_agents):
     controller.save_model(agent_id, f"save_models/agent_{agent_id}_model.pth")
