@@ -52,13 +52,13 @@ for episode in range(num_episodes):
         agent_id = state["agent_id"]
         if agent_id is not None:
             prev_state = state["prev_state"]
-            action = controller.select_action(agent_id, prev_state[0].to(device))  # Chuyển prev_state sang GPU
+            action = controller.select_action(agent_id, prev_state[0]) # Chuyển prev_state sang GPU
             next_state = env.step(action)
             reward = next_state["reward"]
             done = next_state["terminal"]
             if next_state["state"] is not None:
-                next_state_flat = next_state["state"][0].to(device)  # Chuyển next_state_flat sang GPU
-                controller.store_transition(agent_id, prev_state[0].to(device), action, reward, next_state_flat, done)
+                next_state_flat = next_state["state"][0]  # Chuyển next_state_flat sang GPU
+                controller.store_transition(agent_id, prev_state[0], action, reward, next_state_flat, done)
                 controller.train_agent(agent_id)
                 controller.sync_target_network(agent_id)
             else:
