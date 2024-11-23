@@ -1,0 +1,10 @@
+seaborn
+PyYAML
+pandas
+numpy
+torch
+scikit-learn
+scipy
+gym
+matplotlib
+sympy
