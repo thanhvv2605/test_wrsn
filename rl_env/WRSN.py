@@ -125,13 +125,14 @@ class WRSN(gym.Env):
         GNN_model = GCN(num_features, hidden_dim, output_dim, num_classes).to(self.device)
 
         # Tải lại trạng thái của mô hình từ file
-        GNN_model.load_state_dict(torch.load(model_path))
+        # GNN_model.load_state_dict(torch.load(model_path))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            GNN_model.load_state_dict(torch.load(model_path))
+            GNN_model.load_state_dict(torch.load(model_path, weights_only=True))
         data = data.to(self.device)
         with torch.no_grad():
             _, embeddings = GNN_model(data.x, data.edge_index)
+
         enegy = self.get_enegy(device=embeddings.device)
         embeddings = torch.cat((embeddings, enegy), 1)
         embeddings_np = embeddings.detach().cpu().numpy()

@@ -11,7 +11,8 @@ root_dir = os.getcwd()
 
 from controller.DeepQ.DQNController import DQNController
 from rl_env.WRSN import WRSN
-
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="torch")
 # Tải cấu hình từ tệp JSON
 def load_config(config_path):
     with open(config_path, "r") as file:
