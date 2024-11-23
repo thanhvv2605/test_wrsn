@@ -58,8 +58,8 @@ for episode in range(num_episodes):
 
             if next_state["state"] is not None:
                 next_state_flat = torch.tensor(next_state["state"][0], dtype=torch.float32).to(device)
-                controller.remember(agent_id, prev_state, action, reward, next_state_flat, done)
-                controller.train(agent_id)
+                controller.store_transition(agent_id, prev_state, action, reward, next_state_flat, done)
+                controller.train_agent(agent_id)
                 controller.sync_target_network(agent_id)
             else:
                 # Agent is still moving or charging
