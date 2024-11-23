@@ -1,48 +1,49 @@
 import sys
 import os
+import json
 import torch
 
+# Thêm thư mục cha vào đường dẫn
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+# Đường dẫn gốc
 root_dir = os.getcwd()
-import json
 
 from controller.DeepQ.DQNController import DQNController
 from rl_env.WRSN import WRSN
 
-# Check if GPU is available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
-# Load configuration from JSON file
+# Tải cấu hình từ tệp JSON
 def load_config(config_path):
     with open(config_path, "r") as file:
         config = json.load(file)
     return config
 
-# Load configuration
+# Tải cấu hình
 config = load_config("params/deepq_models.json")
 
-# Initialize environment
+# Khởi tạo môi trường
 env = WRSN(
     scenario_path="physical_env/network/network_scenarios/hanoi1000n50.yaml",
     agent_type_path="physical_env/mc/mc_types/default.yaml",
     num_agent=1
 )
 
-# Get a sample state to determine state_dim
+# Lấy trạng thái mẫu để xác định state_dim
 state = env.reset()
 if state["state"] is not None:
-    sample_state = torch.tensor(state["state"][0], dtype=torch.float32).to(device)
+    sample_state = state["state"][0]
 else:
-    sample_state = torch.tensor(env.get_state(agent_id=0)[0], dtype=torch.float32).to(device)
-
-state_dim = sample_state.size(0)  # Use PyTorch tensor size
+    sample_state = env.get_state(agent_id=0)[0]
+state_dim = sample_state.size
 action_dim = len(env.net.listChargingLocations) + 1
-controller = DQNController(num_agents=1, state_dim=state_dim, action_dim=action_dim, config=config)
-controller.q_networks = [q_net.to(device) for q_net in controller.q_networks]
-controller.target_networks = [target_net.to(device) for target_net in controller.target_networks]
 
-num_episodes = 1000
+# Kiểm tra xem GPU có sẵn không
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Khởi tạo controller và chuyển mô hình sang GPU
+controller = DQNController(num_agents=1, state_dim=state_dim, action_dim=action_dim, config=config).to(device)
+
+num_episodes = 5
 for episode in range(num_episodes):
     state = env.reset()
     done = False
@@ -50,19 +51,18 @@ for episode in range(num_episodes):
     while not done:
         agent_id = state["agent_id"]
         if agent_id is not None:
-            prev_state = torch.tensor(state["prev_state"][0], dtype=torch.float32).to(device)
-            action = controller.select_action(agent_id, prev_state)
+            prev_state = state["prev_state"]
+            action = controller.select_action(agent_id, prev_state[0].to(device))  # Chuyển prev_state sang GPU
             next_state = env.step(action)
             reward = next_state["reward"]
             done = next_state["terminal"]
-
             if next_state["state"] is not None:
-                next_state_flat = torch.tensor(next_state["state"][0], dtype=torch.float32).to(device)
-                controller.store_transition(agent_id, prev_state, action, reward, next_state_flat, done)
+                next_state_flat = next_state["state"][0].to(device)  # Chuyển next_state_flat sang GPU
+                controller.store_transition(agent_id, prev_state[0].to(device), action, reward, next_state_flat, done)
                 controller.train_agent(agent_id)
                 controller.sync_target_network(agent_id)
             else:
-                # Agent is still moving or charging
+                # Agent vẫn đang di chuyển hoặc đang sạc
                 pass
             state = next_state
         else:
@@ -70,6 +70,6 @@ for episode in range(num_episodes):
             done = next_state["terminal"]
             state = next_state
 
-# Save models for all agents
+# Lưu mô hình cho tất cả các agent
 for agent_id in range(controller.num_agents):
     controller.save_model(agent_id, f"save_models/agent_{agent_id}_model.pth")
