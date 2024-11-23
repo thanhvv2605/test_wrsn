@@ -141,8 +141,7 @@ class Network:
             n_clusters_optimal = 0
             
             for n_clusters in range_n_clusters:
-                clusterer = KMeans(n_clusters=n_clusters, init="k-means++",  algorithm='elkan')
-
+                clusterer = KMeans(n_clusters=n_clusters, init="k-means++", algorithm='elkan', n_init="auto")
                 cluster_labels = clusterer.fit_predict(list_node_locations)
                 silhouette_avg = silhouette_score(list_node_locations, cluster_labels)
 
