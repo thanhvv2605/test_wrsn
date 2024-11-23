@@ -41,9 +41,9 @@ action_dim = len(env.net.listChargingLocations) + 1
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Khởi tạo controller và chuyển mô hình sang GPU
-controller = DQNController(num_agents=1, state_dim=state_dim, action_dim=action_dim, config=config).to(device)
+controller = DQNController(num_agents=1, state_dim=state_dim, action_dim=action_dim, config=config)
 
-num_episodes = 5
+num_episodes = 1000
 for episode in range(num_episodes):
     state = env.reset()
     done = False
