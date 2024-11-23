@@ -26,6 +26,7 @@ config = load_config("params/deepq_models.json")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.benchmark = True
+print(f"Using device: {device}")
 env = WRSN(
     scenario_path="physical_env/network/network_scenarios/hanoi1000n50.yaml",
     agent_type_path="physical_env/mc/mc_types/default.yaml",
