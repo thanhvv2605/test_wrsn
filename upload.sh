@@ -7,15 +7,17 @@ then
    echo "./push_to_github.sh \"Thông điệp commit của bạn\""
    exit 1
 fi
-
+git checkout gg_colab
 # Thêm tất cả các thay đổi vào staging
 git add .
 
 # Commit các thay đổi với thông điệp
 git commit -m "$1"
 
+
+
 # Push code lên nhánh chính (main)
-git push origin main
+git push origin gg_colab
 
 echo "Đã push code lên GitHub thành công!"
 

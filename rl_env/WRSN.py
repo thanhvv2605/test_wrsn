@@ -102,11 +102,13 @@ class WRSN(gym.Env):
             # Quay về trạm gốc
             x = self.net.baseStation.location[0]
             y = self.net.baseStation.location[1]
-            charging_time = self.agent_phy_para['battery_capacity'] / self.agent_phy_para['input_voltage']
+            energy_needed = self.agents[agent_id].capacity - self.agents[agent_id].energy
+            charging_time = energy_needed / self.agent_phy_para['charging_rate_bs']
+            # charging_time = self.agent_phy_para['capacity'] / self.agent_phy_para['input_voltage']
         else:
             charging_location = self.net.listChargingLocations[action]
-            print("Charging location: ")
-            print(charging_location.id, charging_location.charging_location)
+            # print("Charging location: ")
+            # print(charging_location.id, charging_location.charging_location)
             x = charging_location.charging_location[0]
             y = charging_location.charging_location[1]
 
@@ -128,7 +130,7 @@ class WRSN(gym.Env):
             if x == location.charging_location[0] and y == location.charging_location[1]:
                 for i in self.net.charging_location_detail:
                     if i["cluster_id"] == location.id:
-                        print("Success")
+                        # print("Success")
                         return i["nodes"]
 
     def update_reward(self):
