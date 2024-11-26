@@ -17,7 +17,7 @@ git commit -m "$1"
 
 
 # Push code lên nhánh chính (main)
-git push origin gg_colab
+git push origin gg_colab --force
 
 echo "Đã push code lên GitHub thành công!"
 
