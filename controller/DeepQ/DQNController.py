@@ -1,5 +1,6 @@
 import sys
 import os
+
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import torch
 import torch.nn as nn
@@ -10,6 +11,7 @@ from collections import deque
 import numpy as np
 from controller.DeepQ.DQN_model import DQN
 from controller.DeepQ.ReplayBuffer import ReplayBuffer
+
 
 class DQNController:
     def __init__(self, num_agents, state_dim, action_dim, config, device=torch.device('cpu')):
@@ -24,9 +26,10 @@ class DQNController:
         self.epsilon_end = config.get("epsilon_end", 0.01)
         self.epsilon_decay = config.get("epsilon_decay", 500)
         self.target_update_freq = config.get("target_update", 10)
-        self.batch_size = config.get("batch_size", 64)
-        self.replay_buffer_capacity = config.get("replay_buffer_capacity", 10000)
-
+        self.batch_size = config.get("batch_size", 512)
+        self.replay_buffer_capacity = config.get("replay_buffer_capacity", 100000)
+        print("REPLAY SIZE", self.replay_buffer_capacity)
+        print("BATCH SIZE", self.batch_size)
         # Initialize epsilon and steps_done for each agent
         self.epsilon = [self.epsilon_start for _ in range(num_agents)]
         self.steps_done = [0 for _ in range(num_agents)]
@@ -79,25 +82,17 @@ class DQNController:
         batch = self.replay_buffers[agent_id].sample(self.batch_size)
         states, actions, rewards, next_states, dones = batch
 
-        # Debugging: Ensure data is in the correct format
-        if isinstance(states, tuple):
-            states = list(states)  # Convert tuple to list
-
-        # Ensure states and next_states are numpy arrays for tensor conversion
-        try:
-            states = np.array(states, dtype=np.float32)
-            next_states = np.array(next_states, dtype=np.float32)
-        except Exception as e:
-            raise ValueError(f"Failed to convert states to numpy array: {e}")
-
+        # print("State -----------------")
+        # print(states)
+        # print(type(states))
+        states = torch.stack(list(states)).float().to(self.device)
         # Convert to tensors
-        states = torch.FloatTensor(states).to(self.device)
-        print("State -----------------")
-        print(states)
-        print(type(states))
+        # states = torch.FloatTensor(states).to(self.device)
+
         actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)
         rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
-        next_states = torch.FloatTensor(next_states).to(self.device)
+        # next_states = torch.FloatTensor(next_states).to(self.device)
+        next_states = torch.stack(list(next_states)).float().to(self.device)
         dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
 
         # Q-values of current states
