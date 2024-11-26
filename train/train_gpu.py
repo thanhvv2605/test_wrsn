@@ -54,7 +54,7 @@ controller = DQNController(
     device=device
 )
 
-num_episodes = 1000
+num_episodes = 100
 for episode in range(num_episodes):
     state = env.reset()
     done = False
