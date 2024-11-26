@@ -25,12 +25,14 @@ class DQNController:
         self.epsilon_decay = config.get("epsilon_decay", 500)
         self.target_update_freq = config.get("target_update", 10)
         self.batch_size = config.get("batch_size", 64)
+        self.replay_buffer_capacity = config.get("replay_buffer_capacity", 10000)
 
-        # Initialize epsilon
-        self.epsilon = self.epsilon_start
+        # Initialize epsilon and steps_done for each agent
+        self.epsilon = [self.epsilon_start for _ in range(num_agents)]
+        self.steps_done = [0 for _ in range(num_agents)]
 
         # Replay buffers for all agents
-        self.replay_buffers = [ReplayBuffer(capacity=10000) for _ in range(num_agents)]
+        self.replay_buffers = [ReplayBuffer(capacity=self.replay_buffer_capacity) for _ in range(num_agents)]
 
         # Networks for all agents
         self.q_networks = [DQN(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
@@ -42,19 +44,17 @@ class DQNController:
             self.target_networks[i].load_state_dict(self.q_networks[i].state_dict())
             self.target_networks[i].eval()
 
-        self.steps_done = 0  # For epsilon decay
-
     def select_action(self, agent_id, state):
-        """
-        Select an action for a specific agent based on the current state using epsilon-greedy policy.
-        """
         sample = random.random()
         eps_threshold = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
-                        math.exp(-1. * self.steps_done / self.epsilon_decay)
-        self.steps_done += 1
+                        math.exp(-1. * self.steps_done[agent_id] / self.epsilon_decay)
+        self.steps_done[agent_id] += 1
 
         if sample > eps_threshold:
-            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            if not isinstance(state, torch.Tensor):
+                state_tensor = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+            else:
+                state_tensor = state.unsqueeze(0)  # state is already a tensor
             with torch.no_grad():
                 q_values = self.q_networks[agent_id](state_tensor)
             action = int(torch.argmax(q_values).item())
@@ -75,13 +75,26 @@ class DQNController:
         """
         if len(self.replay_buffers[agent_id]) < self.batch_size:
             return  # Not enough samples to train
-
         # Sample a mini-batch from the replay buffer
         batch = self.replay_buffers[agent_id].sample(self.batch_size)
         states, actions, rewards, next_states, dones = batch
 
+        # Debugging: Ensure data is in the correct format
+        if isinstance(states, tuple):
+            states = list(states)  # Convert tuple to list
+
+        # Ensure states and next_states are numpy arrays for tensor conversion
+        try:
+            states = np.array(states, dtype=np.float32)
+            next_states = np.array(next_states, dtype=np.float32)
+        except Exception as e:
+            raise ValueError(f"Failed to convert states to numpy array: {e}")
+
         # Convert to tensors
         states = torch.FloatTensor(states).to(self.device)
+        print("State -----------------")
+        print(states)
+        print(type(states))
         actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)
         rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
         next_states = torch.FloatTensor(next_states).to(self.device)
@@ -101,14 +114,14 @@ class DQNController:
         loss.backward()
         self.optimizers[agent_id].step()
 
-        # Update epsilon
-        self.epsilon = max(self.epsilon_end, self.epsilon * self.epsilon_decay)
+        # Update epsilon for the agent
+        self.epsilon[agent_id] = max(self.epsilon_end, self.epsilon[agent_id] * self.epsilon_decay)
 
     def sync_target_network(self, agent_id):
         """
         Update the target network of a specific agent to match its Q-network.
         """
-        if self.steps_done % self.target_update_freq == 0:
+        if self.steps_done[agent_id] % self.target_update_freq == 0:
             self.target_networks[agent_id].load_state_dict(self.q_networks[agent_id].state_dict())
 
     def save_model(self, agent_id, path):

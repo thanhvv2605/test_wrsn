@@ -16,6 +16,8 @@ class MobileCharger:
         self.location = np.array(location)
         self.energy = mc_phy_spe['capacity']
         self.capacity = mc_phy_spe['capacity']
+        self.charging_rate_bs = mc_phy_spe['charging_rate_bs']
+
 
         self.alpha = mc_phy_spe['alpha']
         self.beta = mc_phy_spe['beta']

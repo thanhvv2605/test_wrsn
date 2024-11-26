@@ -7,4 +7,4 @@
 "alpha" : 4500
 "beta" : 30
 "epsilon" : 0.0000000001
-
+"charging_rate_bs": 100
