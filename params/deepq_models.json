@@ -1,9 +1,10 @@
 {
-    "learning_rate": 0.001,
     "gamma": 0.99,
-    "batch_size": 512,
+    "learning_rate": 1e-3,
     "epsilon_start": 1.0,
     "epsilon_end": 0.01,
-    "epsilon_decay": 0.995,
-    "target_update": 10
+    "epsilon_decay": 5000,  
+    "target_update": 10,
+    "batch_size": 1024,     
+    "replay_buffer_capacity": 100000
 }

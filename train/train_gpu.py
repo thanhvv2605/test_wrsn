@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import torch
+from torch.utils.tensorboard import SummaryWriter  # Thêm dòng này
 
 # Thêm thư mục cha vào đường dẫn
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -54,19 +55,19 @@ controller = DQNController(
     device=device
 )
 
-num_episodes = 100
+num_episodes = 1000
+writer = SummaryWriter(log_dir="logs")  # Khởi tạo TensorBoard writer
+
 for episode in range(num_episodes):
     state = env.reset()
     done = False
+    total_reward = 0  # Tổng phần thưởng trong tập
 
     while not done:
         agent_id = state["agent_id"]
         if agent_id is not None:
             prev_state_data = state["prev_state"][0]
-            if not isinstance(prev_state_data, torch.Tensor):
-                prev_state = torch.tensor(prev_state_data, dtype=torch.float32, device=device)
-            else:
-                prev_state = prev_state_data.to(device)
+            prev_state = torch.tensor(prev_state_data, dtype=torch.float32, device=device)
 
             # Lựa chọn hành động từ bộ điều khiển
             action = controller.select_action(agent_id, prev_state)
@@ -77,24 +78,31 @@ for episode in range(num_episodes):
 
             if next_state["state"] is not None:
                 next_state_data = next_state["state"][0]
-                if not isinstance(next_state_data, torch.Tensor):
-                    next_state_flat = torch.tensor(next_state_data, dtype=torch.float32, device=device)
-                else:
-                    next_state_flat = next_state_data.to(device)
+                next_state_flat = torch.tensor(next_state_data, dtype=torch.float32, device=device)
 
                 controller.store_transition(agent_id, prev_state, action, reward, next_state_flat, done)
                 controller.train_agent(agent_id)
                 controller.sync_target_network(agent_id)
             state = next_state
+            if reward is not None:
+              total_reward += reward  # Cộng phần thưởng
         else:
             # Khi agent_id là None, chúng ta cần tiếp tục bước môi trường mà không thực hiện hành động
             # Gọi hàm step với agent_id là None và action là None
             next_state = env.step(None, None)
             done = next_state["terminal"]
             state = next_state
+
+    # Ghi phần thưởng và epsilon vào TensorBoard
+    writer.add_scalar('Total Reward/Episode', total_reward, episode)
+    writer.add_scalar('Epsilon/Episode', controller.epsilon[0], episode)  # Giả sử chỉ có 1 tác nhân
+
+    # Sau mỗi tập, tăng số tập trong controller
+    controller.increment_episode()
     print(f"Episode {episode+1}/{num_episodes} completed!")
 
+writer.close()
+
 print("Training completed!")
-# Lưu mô hình cho tất cả các agent
 for agent_id in range(controller.num_agents):
     controller.save_model(agent_id, f"save_models/agent_{agent_id}_model.pth")

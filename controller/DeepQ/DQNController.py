@@ -1,5 +1,6 @@
 import sys
 import os
+
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import torch
 import torch.nn as nn
@@ -10,6 +11,7 @@ from collections import deque
 import numpy as np
 from controller.DeepQ.DQN_model import DQN
 from controller.DeepQ.ReplayBuffer import ReplayBuffer
+
 
 class DQNController:
     def __init__(self, num_agents, state_dim, action_dim, config, device=torch.device('cpu')):
@@ -22,15 +24,16 @@ class DQNController:
         self.lr = config.get("learning_rate", 1e-3)
         self.epsilon_start = config.get("epsilon_start", 1.0)
         self.epsilon_end = config.get("epsilon_end", 0.01)
-        self.epsilon_decay = config.get("epsilon_decay", 500)
+        self.epsilon_decay = config.get("epsilon_decay", 5000)  # Tăng epsilon_decay
         self.target_update_freq = config.get("target_update", 10)
-        self.batch_size = config.get("batch_size", 512)
+        self.batch_size = config.get("batch_size", 1024)  # Tăng batch_size
         self.replay_buffer_capacity = config.get("replay_buffer_capacity", 100000)
-        print("REPLAY SIZE",self.replay_buffer_capacity)
+        print("REPLAY SIZE", self.replay_buffer_capacity)
         print("BATCH SIZE", self.batch_size)
         # Initialize epsilon and steps_done for each agent
         self.epsilon = [self.epsilon_start for _ in range(num_agents)]
         self.steps_done = [0 for _ in range(num_agents)]
+        self.episode_count = 0  # Thêm biến đếm số tập
 
         # Replay buffers for all agents
         self.replay_buffers = [ReplayBuffer(capacity=self.replay_buffer_capacity) for _ in range(num_agents)]
@@ -46,21 +49,21 @@ class DQNController:
             self.target_networks[i].eval()
 
     def select_action(self, agent_id, state):
-        sample = random.random()
+        # Cập nhật epsilon dựa trên số tập
         eps_threshold = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
-                        math.exp(-1. * self.steps_done[agent_id] / self.epsilon_decay)
-        self.steps_done[agent_id] += 1
+                        math.exp(-1. * self.episode_count / self.epsilon_decay)
 
-        if sample > eps_threshold:
+        if random.random() > eps_threshold:
+            # Exploitation
             if not isinstance(state, torch.Tensor):
                 state_tensor = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
             else:
-                state_tensor = state.unsqueeze(0)  # state is already a tensor
+                state_tensor = state.unsqueeze(0)
             with torch.no_grad():
                 q_values = self.q_networks[agent_id](state_tensor)
             action = int(torch.argmax(q_values).item())
         else:
-            # Exploration: choose a random action
+            # Exploration
             action = random.randrange(self.action_dim)
         return action
 
@@ -68,6 +71,18 @@ class DQNController:
         """
         Store experience in the replay buffer of a specific agent.
         """
+        # Chuyển dữ liệu sang tensor trên thiết bị
+        if not isinstance(state, torch.Tensor):
+            state = torch.tensor(state, dtype=torch.float32, device=self.device)
+        if not isinstance(next_state, torch.Tensor):
+            next_state = torch.tensor(next_state, dtype=torch.float32, device=self.device)
+        if not isinstance(action, torch.Tensor):
+            action = torch.tensor([action], dtype=torch.int64, device=self.device)
+        if not isinstance(reward, torch.Tensor):
+            reward = torch.tensor([reward], dtype=torch.float32, device=self.device)
+        if not isinstance(done, torch.Tensor):
+            done = torch.tensor([done], dtype=torch.float32, device=self.device)
+
         self.replay_buffers[agent_id].store(state, action, reward, next_state, done)
 
     def train_agent(self, agent_id):
@@ -80,19 +95,17 @@ class DQNController:
         batch = self.replay_buffers[agent_id].sample(self.batch_size)
         states, actions, rewards, next_states, dones = batch
 
-        
-        # print("State -----------------")
-        # print(states)
-        # print(type(states))
-        states = torch.stack(list(states)).float().to(self.device)
-        # Convert to tensors
-        # states = torch.FloatTensor(states).to(self.device)
-        
-        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)
-        rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
-        # next_states = torch.FloatTensor(next_states).to(self.device)
-        next_states = torch.stack(list(next_states)).float().to(self.device)
-        dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
+        # Chuyển đổi sang tensor và chuyển sang thiết bị
+        states = torch.stack(states).float().to(self.device)
+        actions = torch.cat(actions).long().to(self.device)
+        rewards = torch.cat(rewards).float().to(self.device)
+        next_states = torch.stack(next_states).float().to(self.device)
+        dones = torch.cat(dones).float().to(self.device)
+
+        # Thêm dimension cho actions và rewards nếu cần
+        actions = actions.unsqueeze(1)
+        rewards = rewards.unsqueeze(1)
+        dones = dones.unsqueeze(1)
 
         # Q-values of current states
         q_values = self.q_networks[agent_id](states).gather(1, actions)
@@ -117,6 +130,9 @@ class DQNController:
         """
         if self.steps_done[agent_id] % self.target_update_freq == 0:
             self.target_networks[agent_id].load_state_dict(self.q_networks[agent_id].state_dict())
+
+    def increment_episode(self):
+        self.episode_count += 1
 
     def save_model(self, agent_id, path):
         """
