@@ -5,10 +5,9 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import random
+import numpy as np
 import math
 from collections import deque
-import numpy as np
 from controller.DeepQ.DQN_model import DQN
 from controller.DeepQ.ReplayBuffer import ReplayBuffer
 
@@ -24,16 +23,15 @@ class DQNController:
         self.lr = config.get("learning_rate", 1e-3)
         self.epsilon_start = config.get("epsilon_start", 1.0)
         self.epsilon_end = config.get("epsilon_end", 0.01)
-        self.epsilon_decay = config.get("epsilon_decay", 5000)  # Tăng epsilon_decay
+        self.epsilon_decay = config.get("epsilon_decay", 5000)
         self.target_update_freq = config.get("target_update", 10)
-        self.batch_size = config.get("batch_size", 1024)  # Tăng batch_size
+        self.batch_size = config.get("batch_size", 1024)
         self.replay_buffer_capacity = config.get("replay_buffer_capacity", 100000)
         print("REPLAY SIZE", self.replay_buffer_capacity)
         print("BATCH SIZE", self.batch_size)
-        # Initialize epsilon and steps_done for each agent
-        self.epsilon = [self.epsilon_start for _ in range(num_agents)]
+        # Initialize steps_done for each agent
         self.steps_done = [0 for _ in range(num_agents)]
-        self.episode_count = 0  # Thêm biến đếm số tập
+        self.episode_count = 0  # Episode count
 
         # Replay buffers for all agents
         self.replay_buffers = [ReplayBuffer(capacity=self.replay_buffer_capacity) for _ in range(num_agents)]
@@ -48,12 +46,19 @@ class DQNController:
             self.target_networks[i].load_state_dict(self.q_networks[i].state_dict())
             self.target_networks[i].eval()
 
+        # Tạo bộ tạo số ngẫu nhiên cục bộ cho mỗi tác nhân
+        self.rng = np.random.default_rng()
+
     def select_action(self, agent_id, state):
         # Cập nhật epsilon dựa trên số tập
         eps_threshold = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
                         math.exp(-1. * self.episode_count / self.epsilon_decay)
+        # In ra epsilon để kiểm tra
+        print(f"Agent {agent_id} - Epsilon: {eps_threshold}")
 
-        if random.random() > eps_threshold:
+        rand_value = self.rng.random()
+        print(f"Random value: {rand_value}, Epsilon: {eps_threshold}")
+        if rand_value > eps_threshold:
             # Exploitation
             if not isinstance(state, torch.Tensor):
                 state_tensor = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
@@ -62,9 +67,11 @@ class DQNController:
             with torch.no_grad():
                 q_values = self.q_networks[agent_id](state_tensor)
             action = int(torch.argmax(q_values).item())
+            print(f"Agent {agent_id} - Q-values: {q_values.cpu().numpy()}, Selected action: {action}")
         else:
             # Exploration
-            action = random.randrange(self.action_dim)
+            action = self.rng.integers(0, self.action_dim)
+            print(f"Exploration action selected: {action}")
         return action
 
     def store_transition(self, agent_id, state, action, reward, next_state, done):
@@ -109,6 +116,7 @@ class DQNController:
 
         # Q-values of current states
         q_values = self.q_networks[agent_id](states).gather(1, actions)
+        print(f"Replay Buffer Size: {len(self.replay_buffers[agent_id])}")
 
         # Q-values of next states from target network
         with torch.no_grad():
@@ -120,14 +128,13 @@ class DQNController:
         self.optimizers[agent_id].zero_grad()
         loss.backward()
         self.optimizers[agent_id].step()
-
-        # Update epsilon for the agent
-        self.epsilon[agent_id] = max(self.epsilon_end, self.epsilon[agent_id] * self.epsilon_decay)
+        print(f"Agent {agent_id} - Loss: {loss.item()}")
 
     def sync_target_network(self, agent_id):
         """
         Update the target network of a specific agent to match its Q-network.
         """
+        self.steps_done[agent_id] += 1  # Tăng steps_done
         if self.steps_done[agent_id] % self.target_update_freq == 0:
             self.target_networks[agent_id].load_state_dict(self.q_networks[agent_id].state_dict())
 

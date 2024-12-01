@@ -2,7 +2,8 @@ import sys
 import os
 import json
 import torch
-from torch.utils.tensorboard import SummaryWriter  # Thêm dòng này
+from torch.utils.tensorboard import SummaryWriter
+import math
 
 # Thêm thư mục cha vào đường dẫn
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -85,7 +86,7 @@ for episode in range(num_episodes):
                 controller.sync_target_network(agent_id)
             state = next_state
             if reward is not None:
-              total_reward += reward  # Cộng phần thưởng
+                total_reward += reward  # Cộng phần thưởng
         else:
             # Khi agent_id là None, chúng ta cần tiếp tục bước môi trường mà không thực hiện hành động
             # Gọi hàm step với agent_id là None và action là None
@@ -95,11 +96,13 @@ for episode in range(num_episodes):
 
     # Ghi phần thưởng và epsilon vào TensorBoard
     writer.add_scalar('Total Reward/Episode', total_reward, episode)
-    writer.add_scalar('Epsilon/Episode', controller.epsilon[0], episode)  # Giả sử chỉ có 1 tác nhân
+    eps_threshold = controller.epsilon_end + (controller.epsilon_start - controller.epsilon_end) * \
+                    math.exp(-1. * controller.episode_count / controller.epsilon_decay)
+    writer.add_scalar('Epsilon/Episode', eps_threshold, episode)
 
     # Sau mỗi tập, tăng số tập trong controller
     controller.increment_episode()
-    print(f"Episode {episode+1}/{num_episodes} completed!")
+    print(f"Episode {episode+1}/{num_episodes} completed! Epsilon: {eps_threshold}")
 
 writer.close()
 

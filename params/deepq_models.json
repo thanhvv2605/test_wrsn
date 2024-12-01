@@ -3,7 +3,7 @@
     "learning_rate": 1e-3,
     "epsilon_start": 1.0,
     "epsilon_end": 0.01,
-    "epsilon_decay": 5000,  
+    "epsilon_decay": 10000,  
     "target_update": 10,
     "batch_size": 1024,     
     "replay_buffer_capacity": 100000

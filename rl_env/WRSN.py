@@ -1,11 +1,10 @@
 import yaml
 import copy
 import gym
-import random
+import numpy as np
 from torch_geometric.graphgym.optim import none_scheduler
 from rl_env.state_representation.GNN import GCN
 from gym import spaces
-import numpy as np
 import sys
 import os
 import warnings
@@ -34,6 +33,8 @@ class WRSN(gym.Env):
         self.agents_prev_state = [None for _ in range(num_agent)]
         self.agents_prev_fitness = [None for _ in range(num_agent)]
         self.agents_exclusive_reward = [0 for _ in range(num_agent)]
+        # Tạo bộ tạo số ngẫu nhiên cục bộ
+        self.rng = np.random.default_rng()
         self.reset()
         for entry in self.net.listChargingLocations:
             print("Charging location: ")
@@ -49,7 +50,9 @@ class WRSN(gym.Env):
 
     def reset(self):
         self.env, self.net = self.scenario_io.makeNetwork()
-        self.prev_node_statuses = [node.status for node in self.net.listNodes]  # của hàm get_reward mới
+        # Không điều chỉnh năng lượng khởi tạo của các nút
+        # Đảm bảo rằng năng lượng của các nút đủ để hoạt động trong nhiều bước
+        self.prev_node_statuses = [node.status for node in self.net.listNodes]  # cho hàm get_reward
 
         self.net_process = self.env.process(self.net.operate()) & self.env.process(self.update_reward())
         self.agents = [MobileCharger(copy.deepcopy(self.net.baseStation.location), self.agent_phy_para) for _ in
@@ -59,7 +62,7 @@ class WRSN(gym.Env):
             agent.net = self.net
             agent.id = id
             agent.cur_phy_action = [self.net.baseStation.location[0], self.net.baseStation.location[1], 0]
-            agent.prev_location = agent.location.copy()  # Thêm dòng này
+            agent.prev_location = agent.location.copy()
         self.moving_time_max = (euclidean(np.array([self.net.frame[0], self.net.frame[2]]),
                                           np.array([self.net.frame[1], self.net.frame[3]]))) / self.agent_phy_para[
                                    "velocity"]
@@ -68,7 +71,7 @@ class WRSN(gym.Env):
 
         self.avg_nodes_agent = (self.net.nodes_density * np.pi * (self.agent_phy_para["charging_range"] ** 2))
         self.env.run(until=self.warm_up_time)
-        if self.net.alive == 1:
+        if self.net.alive > 0:
             tmp_terminal = False
         else:
             tmp_terminal = True
@@ -134,50 +137,42 @@ class WRSN(gym.Env):
                         return i["nodes"]
 
     def update_reward(self):
-        """_summary_
-        Hàm update_reward nhằm:
-        - Xác định mức độ ưu tiên cho việc sạc của các node trong mạng.
-        - Tính toán điểm thưởng cho mỗi tác nhân dựa trên sự cải thiện năng lượng của các node mà nó ảnh hưởng.
-        - Cập nhật điểm thưởng độc quyền (agents_exclusive_reward) của từng tác nhân, giúp đánh giá hiệu suất của chúng trong việc kéo dài thời gian sống của các node.
-        """
+        """Hàm này có thể được sử dụng để cập nhật phần thưởng nếu cần thiết."""
         yield self.env.timeout(0)
 
     def get_state(self, agent_id):
         """
-        :param agent_id:
-        :return:
+        Trả về trạng thái của tác nhân dưới dạng vector đặc trưng.
         """
-
         model_path = os.path.join(root_dir, "rl_env", "grap_model.pth")
 
         data = GraphRepresentation.create_graph(self.net)
         num_features = data.x.size(1)
         num_classes = len(self.net.listChargingLocations) + 1
         hidden_dim = 512
-        output_dim = 83  # số lượng lớp đầu ra, ví dụ
+        output_dim = 83  # Số lượng lớp đầu ra, ví dụ
         GNN_model = GCN(num_features, hidden_dim, output_dim, num_classes).to(self.device)
 
         # Tải lại trạng thái của mô hình từ file
-        # GNN_model.load_state_dict(torch.load(model_path))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            GNN_model.load_state_dict(torch.load(model_path, weights_only=True))
+            GNN_model.load_state_dict(torch.load(model_path, map_location=self.device), strict=False)
         data = data.to(self.device)
         with torch.no_grad():
             _, embeddings = GNN_model(data.x, data.edge_index)
 
-        enegy = self.get_enegy(device=self.device)
-        embeddings = torch.cat((embeddings, enegy), 1)
+        energy = self.get_energy(device=self.device)
+        embeddings = torch.cat((embeddings, energy), 1)
         embeddings_np = embeddings.detach().cpu().numpy()
         embedding_dim = embeddings_np.shape[1]
         embeddings_flat = embeddings_np.flatten()
         return embeddings_flat, embedding_dim
 
-    def get_enegy(self, device):
+    def get_energy(self, device):
         arr_energy = []
         for node in self.net.listNodes:
             arr_energy.append(node.energy / self.scenario_io.node_phy_spe["capacity"])
-        arr_energy.append(1)
+        arr_energy.append(1)  # Thêm giá trị cho trạm sạc hoặc tác nhân nếu cần
         arr_energy = torch.tensor(arr_energy, device=device)
         tensor_energy = arr_energy.view(-1, 1)
         return tensor_energy
@@ -220,62 +215,15 @@ class WRSN(gym.Env):
         reward = delta_mean_energy + delta_min_energy + node_death_penalty + stay_penalty
 
         # Cập nhật prev_node_statuses cho lần tiếp theo
-        # self.prev_node_statuses = current_node_statuses
-        # print("delta_mean_energy:", delta_mean_energy)
-        # print("delta_min_energy:", delta_min_energy)
-        # print("num_nodes_died:", num_nodes_died)
-        # print("node_death_penalty:", node_death_penalty)
-        # print("---- reward ----")
-        # print(reward)
+        self.prev_node_statuses = current_node_statuses
 
         return reward
-
-    def get_network_fitness(self):
-        node_t = [-1 for node in self.net.listNodes]
-        tmp1 = []
-        tmp2 = []
-        for node in self.net.baseStation.direct_nodes:
-            if node.status == 1:
-                tmp1.append(node)
-                if node.energyCS == 0:
-                    node_t[node.id] = float("inf")
-                else:
-                    node_t[node.id] = (node.energy - node.threshold) / (node.energyCS)
-        while True:
-            if len(tmp1) == 0:
-                break
-            for node in tmp1:
-                for neighbor in node.neighbors:
-                    if neighbor.status != 1:
-                        continue
-                    if neighbor.energyCS == 0:
-                        neighborLT = float("inf")
-                    else:
-                        neighborLT = (neighbor.energy - neighbor.threshold) / (neighbor.energyCS)
-                    if node_t[neighbor.id] == -1 or (
-                            node_t[node.id] > node_t[neighbor.id] and neighborLT > node_t[neighbor.id]):
-                        tmp2.append(neighbor)
-                        node_t[neighbor.id] = min(neighborLT, node_t[node.id])
-
-            tmp1 = tmp2[:]
-            tmp2.clear()
-        target_t = [0 for target in self.net.listTargets]
-        for node in self.net.listNodes:
-            for target in node.listTargets:
-                target_t[target.id] = max(target_t[target.id], node_t[node.id])
-        return np.array(target_t)
 
     def step(self, agent_id, input_action):
         print("---- step ----")
         print(input_action)
         # Lưu trạng thái trước khi môi trường chạy
         self.prev_node_statuses = [node.status for node in self.net.listNodes]
-        # Chạy môi trường
-        general_process = self.net_process
-        for id, agent in enumerate(self.agents):
-            if agent.status != 0:
-                general_process = general_process | self.agents_process[id]
-        self.env.run(until=general_process)
 
         if input_action is not None:
             action = int(input_action)
@@ -322,7 +270,7 @@ class WRSN(gym.Env):
         # Kiểm tra nếu tác nhân sẵn sàng hành động lại
         if euclidean(self.agents[agent_id].location, self.agents[agent_id].cur_phy_action[0:2]) < self.epsilon and \
                 self.agents[agent_id].cur_phy_action[2] == 0:
-            print("action:", self.agents_action[agent_id], "reward:", reward,"terminal:", False)
+            print("action:", self.agents_action[agent_id], "reward:", reward, "terminal:", False)
 
             return {
                 "agent_id": agent_id,
