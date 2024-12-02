@@ -1,0 +1,2 @@
+2024-11-29 23:31:24,331 - ERROR - Simulation error: 'str' object has no attribute 'mkdir'
+2024-11-29 23:31:24,331 - INFO - Total simulation time: 180.75764892457812
