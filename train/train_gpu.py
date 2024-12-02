@@ -56,7 +56,7 @@ controller = DQNController(
     device=device
 )
 
-num_episodes = 100
+num_episodes = 200
 writer = SummaryWriter(log_dir="logs")  # Khởi tạo TensorBoard writer
 
 for episode in range(num_episodes):
