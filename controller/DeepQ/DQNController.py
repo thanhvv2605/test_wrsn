@@ -23,9 +23,9 @@ class DQNController:
         self.lr = config.get("learning_rate", 1e-3)
         self.epsilon_start = config.get("epsilon_start", 1.0)
         self.epsilon_end = config.get("epsilon_end", 0.01)
-        self.epsilon_decay = config.get("epsilon_decay", 5000)
+        self.epsilon_decay = config.get("epsilon_decay", 100)
         self.target_update_freq = config.get("target_update", 10)
-        self.batch_size = config.get("batch_size", 1024)
+        self.batch_size = config.get("batch_size", 512)
         self.replay_buffer_capacity = config.get("replay_buffer_capacity", 100000)
         print("REPLAY SIZE", self.replay_buffer_capacity)
         print("BATCH SIZE", self.batch_size)
@@ -50,14 +50,22 @@ class DQNController:
         self.rng = np.random.default_rng()
 
     def select_action(self, agent_id, state):
-        # Cập nhật epsilon dựa trên số tập
-        eps_threshold = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
-                        math.exp(-1. * self.episode_count / self.epsilon_decay)
-        # In ra epsilon để kiểm tra
-        print(f"Agent {agent_id} - Epsilon: {eps_threshold}")
+        """
+        Lựa chọn hành động với epsilon giảm theo pha.
+        """
+        # Giai đoạn đầu: exploration chậm
+        if self.episode_count < 0.5 * 1000:
+            eps_threshold = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
+                            math.exp(-1. * self.episode_count / (0.5 * self.epsilon_decay))
+        # Giai đoạn sau: exploitation nhanh hơn
+        else:
+            eps_threshold = max(self.epsilon_end,
+                                self.epsilon_end * 0.99 ** (self.episode_count - 0.5 * 1000))
 
+        # In ra epsilon để kiểm tra
         rand_value = self.rng.random()
-        print(f"Random value: {rand_value}, Epsilon: {eps_threshold}")
+        print(f"Agent {agent_id} - Episode {self.episode_count}, Epsilon: {eps_threshold}, Random Value: {rand_value}")
+
         if rand_value > eps_threshold:
             # Exploitation
             if not isinstance(state, torch.Tensor):
@@ -67,17 +75,27 @@ class DQNController:
             with torch.no_grad():
                 q_values = self.q_networks[agent_id](state_tensor)
             action = int(torch.argmax(q_values).item())
+
             print(f"Agent {agent_id} - Q-values: {q_values.cpu().numpy()}, Selected action: {action}")
         else:
             # Exploration
             action = self.rng.integers(0, self.action_dim)
-            print(f"Exploration action selected: {action}")
+            print(f"Agent {agent_id} - Exploration action selected: {action}")
         return action
 
+    def select_action_test(self, agent_id, model, state, device):
+        if not isinstance(state, torch.Tensor):
+            state_tensor = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+        else:
+            state_tensor = state.to(device).unsqueeze(0)
+        with torch.no_grad():
+            q_values = model[agent_id](state_tensor)
+        print(f"Agent {agent_id} - Q-values: {q_values.cpu().numpy()}")
+        action = int(torch.argmax(q_values).item())
+        return action
+
+
     def store_transition(self, agent_id, state, action, reward, next_state, done):
-        """
-        Store experience in the replay buffer of a specific agent.
-        """
         # Chuyển dữ liệu sang tensor trên thiết bị
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state, dtype=torch.float32, device=self.device)
@@ -96,7 +114,9 @@ class DQNController:
         """
         Train the Q-network of a specific agent using its replay buffer.
         """
-        if len(self.replay_buffers[agent_id]) < self.batch_size:
+        if len(self.replay_buffers[agent_id]) < 80*self.batch_size:
+
+            print(f"Replay buffer không đủ mẫu: {len(self.replay_buffers[agent_id])}/{80*self.batch_size}")
             return  # Not enough samples to train
         # Sample a mini-batch from the replay buffer
         batch = self.replay_buffers[agent_id].sample(self.batch_size)
@@ -123,12 +143,15 @@ class DQNController:
             max_next_q_values = self.target_networks[agent_id](next_states).max(1, keepdim=True)[0]
             target_q_values = rewards + (1 - dones) * self.gamma * max_next_q_values
 
+
         # Compute loss and update the agent's Q-network
         loss = nn.MSELoss()(q_values, target_q_values)
         self.optimizers[agent_id].zero_grad()
         loss.backward()
         self.optimizers[agent_id].step()
-        print(f"Agent {agent_id} - Loss: {loss.item()}")
+        print(f"AGENT {agent_id} - Loss: {loss.item()}")
+        # print(f"Q-values: {q_values.detach().cpu().numpy()}")
+        # print(f"Target Q-values: {target_q_values.detach().cpu().numpy()}")
 
     def sync_target_network(self, agent_id):
         """
@@ -151,5 +174,9 @@ class DQNController:
         """
         Load the Q-network of a specific agent from a file.
         """
-        self.q_networks[agent_id].load_state_dict(torch.load(path))
+        map_location = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+        self.q_networks[agent_id].load_state_dict(torch.load(path, map_location=map_location))
+
+        # self.q_networks[agent_id].load_state_dict(torch.load(path))
+
         self.q_networks[agent_id].eval()

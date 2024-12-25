@@ -32,6 +32,8 @@ class MobileCharger:
         self.cur_action_type = "moving"
         self.connected_nodes = []
         self.incentive = 0
+        self.prev_location = None
+        self.recharge_time = 0
 
     def charge_step(self, t):
         """
@@ -101,13 +103,25 @@ class MobileCharger:
     def recharge(self):
         if euclidean(self.location, self.net.baseStation.location) <= self.epsilon:
             self.location = copy.deepcopy(self.net.baseStation.location)
+            time = (self.capacity - self.energy ) / 100
+            self.recharge_time = int(time)
+            print("MC " + str(self.id) + " " + str(self.energy) + " Recharging", self.location, self.energy, time)
             self.energy = self.capacity
-        yield self.env.timeout(0)
+            self.cur_phy_action[2] =0
+        yield self.env.timeout(self.recharge_time)
     
     def operate_step(self, phy_action):
         #print("MC " + str(self.id), "phy_action", phy_action)
         destination = np.array([phy_action[0], phy_action[1]])
         chargingTime = phy_action[2]
+        # print("MC " + str(self.id), "destination", destination, "chargingTime", chargingTime)
+        if phy_action[0] == self.net.baseStation.location[0] and phy_action[1] == self.net.baseStation.location[1]:
+            self.cur_phy_action = phy_action
+            self.cur_action_type = "recharging"
+            print("recharge mc")
+            yield self.env.process(self.move(destination=self.net.baseStation.location))
+            yield self.env.process(self.recharge())
+            return
 
         usedEnergy = euclidean(destination, self.location) * self.pm
         tmp = 0
@@ -120,7 +134,7 @@ class MobileCharger:
 
         if usedEnergy > self.energy - self.threshold - self.capacity / 200.0:
             self.cur_phy_action = phy_action
-            self.cur_action_type = "moving" 
+            self.cur_action_type = "moving"
             yield self.env.process(self.move(destination=self.net.baseStation.location))
             yield self.env.process(self.recharge())   
             yield self.env.process(self.move(destination=destination))

@@ -8,3 +8,4 @@ scipy
 gym
 matplotlib
 sympy
+tensorboard

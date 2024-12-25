@@ -8,6 +8,8 @@ from ChargingLocation import ChargingLocation
 
 class Network:
     def __init__(self, env, listNodes, baseStation, listTargets, max_time):
+        self.output_dim = 80
+        self.hidden_dim = 1024
         self.env = env
         self.listNodes = listNodes
         self.baseStation = baseStation
@@ -243,7 +245,8 @@ class Network:
                     "cluster_id": i,
                     "nodes": node_indices
                 })
-
+            base_station = ChargingLocation(n_clusters_optimal, self.baseStation.location)
+            charging_locations.append(base_station)
             return charging_locations, cluster_details
 
         return define_charging_location(self)

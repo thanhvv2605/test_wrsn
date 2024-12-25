@@ -28,8 +28,11 @@ def load_config(config_path):
 # Tải cấu hình
 config = load_config("params/deepq_models.json")
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+print("MPS available:", torch.backends.mps.is_available())
 torch.backends.cudnn.benchmark = True
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 print(f"Using device: {device}")
 
 env = WRSN(
@@ -46,7 +49,7 @@ if state["state"] is not None:
 else:
     sample_state = env.get_state(agent_id=0)[0]
 state_dim = sample_state.size
-action_dim = len(env.net.listChargingLocations) + 1
+action_dim = len(env.net.listChargingLocations)
 
 controller = DQNController(
     num_agents=1,
@@ -56,7 +59,7 @@ controller = DQNController(
     device=device
 )
 
-num_episodes = 200
+num_episodes = 1000
 writer = SummaryWriter(log_dir="logs")  # Khởi tạo TensorBoard writer
 
 for episode in range(num_episodes):
@@ -87,12 +90,7 @@ for episode in range(num_episodes):
             state = next_state
             if reward is not None:
                 total_reward += reward  # Cộng phần thưởng
-        else:
-            # Khi agent_id là None, chúng ta cần tiếp tục bước môi trường mà không thực hiện hành động
-            # Gọi hàm step với agent_id là None và action là None
-            next_state = env.step(None, None)
-            done = next_state["terminal"]
-            state = next_state
+
 
     # Ghi phần thưởng và epsilon vào TensorBoard
     writer.add_scalar('Total Reward/Episode', total_reward, episode)
@@ -102,7 +100,12 @@ for episode in range(num_episodes):
 
     # Sau mỗi tập, tăng số tập trong controller
     controller.increment_episode()
-    print(f"Episode {episode+1}/{num_episodes} completed! Epsilon: {eps_threshold}")
+    print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    print(f"EPISODE {episode+1}/{num_episodes} COMPLETED! Epsilon: {eps_threshold}")
+    print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+
+    if episode%100 == 0:
+        controller.save_model(0, f"save_models/agent_0_model_{episode}.pth")
 
 writer.close()
 
